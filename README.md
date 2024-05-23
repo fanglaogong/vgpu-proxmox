@@ -2,7 +2,7 @@
 
 [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/polloloco)
 
-This document serves as a guide to install NVIDIA vGPU host drivers on the latest Proxmox VE version, at time of writing this its pve 8.0.
+This document serves as a guide to install NVIDIA vGPU host drivers on the latest Proxmox VE version, at time of writing this its pve 8.2.
 
 You can follow this guide if you have a vGPU supported card from [this list](https://docs.nvidia.com/grid/gpus-supported-by-vgpu.html), or if you are using a consumer GPU from the GeForce series or a non-vGPU qualified Quadro GPU. There are several sections with a title similar to "Have a vGPU supported GPU? Read here" in this document, make sure to read those very carefully as this is where the instructions differ for a vGPU qualified card and a consumer card.
 
@@ -13,6 +13,8 @@ The following consumer/not-vGPU-qualified NVIDIA GPUs can be used with vGPU:
 - All GPUs from the Pascal generation (GTX 10xx, Quadro Pxxxx, Tesla Pxx)
 - All GPUs from the Turing generation (GTX 16xx, RTX 20xx, Txxxx)
 
+Starting from driver version 17.0, Pascal and earlier require additional patches, see [below](#psa-for-pascal-and-older-gpus-like-the-p4-gtx-1080) for more!
+
 If you have GPUs from the Ampere and Ada Lovelace generation, you are out of luck, unless you have a vGPU qualified card from [this list](https://docs.nvidia.com/grid/gpus-supported-by-vgpu.html) like the A5000 or RTX 6000 Ada. If you have one of those cards, please consult the [NVIDIA documentation](https://docs.nvidia.com/grid/15.0/grid-vgpu-user-guide/index.html) for help with setting it up.
 
 > **!!! THIS MEANS THAT YOUR RTX 30XX or 40XX WILL NOT WORK !!!**
@@ -20,8 +22,8 @@ If you have GPUs from the Ampere and Ada Lovelace generation, you are out of luc
 This guide and all my tests were done on a RTX 2080 Ti which is based on the Turing architechture.
 
 ## Important notes before starting
-- This tutorial assumes you are using a clean install of Proxmox VE 8.0.
-- If you are using Proxmox VE 8.0, you **MUST** use 16.x drivers. Older versions only work with pve 7
+- This tutorial assumes you are using a clean install of Proxmox VE 8.2.
+- If you are using Proxmox VE 8.2, you **MUST** use 16.x or 17.x drivers. Older versions only work with pve 7
 - If you tried GPU-passthrough before, you absolutely **MUST** revert all of the steps you did to set that up.
 - If you only have one GPU in your system with no iGPU, your local monitor will **NOT** give you any output anymore after the system boots up. Use SSH or a serial connection if you want terminal access to your machine.
 - Most of the steps can be applied to other linux distributions, however I'm only covering Proxmox VE here.
@@ -61,10 +63,10 @@ First, clone this repo to your home folder (in this case `/root/`)
 git clone https://gitlab.com/polloloco/vgpu-proxmox.git
 ```
 
-You also need the vgpu_unlock-rs repo
+You also need the vgpu_unlock-rs repo (note that I'm using my own fork here because my pull request for 17.0 wasn't merged yet)
 ```bash
 cd /opt
-git clone https://github.com/mbilker/vgpu_unlock-rs.git
+git clone https://github.com/polloloco/vgpu_unlock-rs.git
 ```
 
 After that, install the rust compiler
@@ -102,7 +104,11 @@ echo -e "[Service]\nEnvironment=LD_PRELOAD=/opt/vgpu_unlock-rs/target/release/li
 
 > ### Have a vgpu supported card? Read here!
 >
-> If you don't have a card like the Tesla P4, or any other gpu from [this list](https://docs.nvidia.com/grid/gpus-supported-by-vgpu.html), please continue reading at [Enabling IOMMU](#enabling-iommu)
+>> **PLEASE READ THIS**
+>>
+>> Starting from 17.0, all Pascal (and older) GPUs are **not officially supported** anymore. If you still want to use them, either stay on the LTS 16.x branch, or patch the driver with the relevant patch. 
+>
+> If you don't have a supported gpu from [this list](https://docs.nvidia.com/grid/gpus-supported-by-vgpu.html), please continue reading at [Enabling IOMMU](#enabling-iommu)
 >
 > Disable the unlock part as doing this on a gpu that already supports vgpu, could break things as it introduces unnecessary complexity and more points of possible failure:
 > ```bash
@@ -135,17 +141,20 @@ Depending on which system you are using to boot, you have to chose from the foll
 
   If you are using an Intel system, append this after `quiet`:
   ```
-  intel_iommu=on iommu=pt
+  intel_iommu=on
   ```
 
-  On AMD systems, append this after `quiet`:
+  On AMD systems, you don't have to add anything and amd_iommu=on does not exist:
+  https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html?highlight=amd_iommu
+
+  For either AMD or Intel there is an option incase you have heavy performance issues, but with the loss of security and stability of the system:
   ```
-  amd_iommu=on iommu=pt
+  iommu=pt
   ```
 
   The result should look like this (for intel systems):
   ```
-  GRUB_CMDLINE_LINUX_DEFAULT="quiet intel_iommu=on iommu=pt"
+  GRUB_CMDLINE_LINUX_DEFAULT="quiet intel_iommu=on"
   ```
 
   Now, save and exit from the editor using Ctrl+O and then Ctrl+X and then apply your changes:
@@ -169,17 +178,20 @@ Depending on which system you are using to boot, you have to chose from the foll
 
   On Intel systems, append this at the end
   ```
-  intel_iommu=on iommu=pt
+  intel_iommu=on
   ```
 
-  For AMD, use this
+  On AMD systems, you don't have to add anything and amd_iommu=on does not exist:
+  https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html?highlight=amd_iommu
+
+  For either AMD or Intel there is an option incase you have heavy performance issues, but with the loss of security and stability of the system:
   ```
-  amd_iommu=on iommu=pt
+  iommu=pt
   ```
 
   After editing the file, it should look similar to this
   ```
-  root=ZFS=rpool/ROOT/pve-1 boot=zfs intel_iommu=on iommu=pt
+  root=ZFS=rpool/ROOT/pve-1 boot=zfs intel_iommu=on
   ```
 
   Now, save and exit from the editor using Ctrl+O and then Ctrl+X and then apply your changes:
@@ -256,16 +268,26 @@ Depending on your mainboard and cpu, the output will be different, in my output 
 This repo contains patches that allow you to use vGPU on not-qualified-vGPU cards (consumer GPUs). Those patches are binary patches, which means that each patch works **ONLY** for a specific driver version.
 
 I've created patches for the following driver versions:
-- 16.2 (535.129.03) - Use this if you are on pve 8.0 (kernel 6.2, 6.5 should work too)
+- 17.1 (550.54.16)
+- 17.0 (550.54.10)
+- 16.5 (535.161.05) the patch for this version is the same as for 16.4, the host driver wasnt changed in this release
+- 16.4 (535.161.05)
+- 16.2 (535.129.03)
 - 16.1 (535.104.06)
 - 16.0 (535.54.06)
-- 15.1 (525.85.07)
-- 15.0 (525.60.12)
-- 14.4 (510.108.03)
-- 14.3 (510.108.03)
-- 14.2 (510.85.03)
 
-You can choose which of those you want to use, but generally its recommended to use the latest, most up-to-date version (16.2 in this case).
+Driver support by nvidia:
+- 16.x is the LTS branch, with official support until July 2026
+- 17.x has official support until February 2025
+
+> ### The following versions are EOL, don't use them unless you have a very specific reason!
+> - 15.1 (525.85.07)
+> - 15.0 (525.60.12)
+> - 14.4 (510.108.03)
+> - 14.3 (510.108.03)
+> - 14.2 (510.85.03)
+
+You can choose which of those you want to use, but generally its recommended to use the latest, most up-to-date version (17.1 in this case).
 
 If you have a vGPU qualified GPU, you can use other versions too, because you don't need to patch the driver. However, you still have to make sure they are compatible with your proxmox version and kernel. Also I would not recommend using any older versions unless you have a very specific requirement.
 
@@ -279,24 +301,27 @@ I've created a small video tutorial to find the right driver version on the NVID
 
 ![Video Tutorial to find the right driver](downloading_driver.mp4)
 
-After downloading, extract the zip file and then copy the file called `NVIDIA-Linux-x86_64-DRIVERVERSION-vgpu-kvm.run` (where DRIVERVERSION is a string like `535.129.03`) from the `Host_Drivers` folder to your Proxmox host into the `/root/` folder using tools like FileZilla, WinSCP, scp or rsync.
+After downloading, extract the zip file and then copy the file called `NVIDIA-Linux-x86_64-DRIVERVERSION-vgpu-kvm.run` (where DRIVERVERSION is a string like `550.54.16`) from the `Host_Drivers` folder to your Proxmox host into the `/root/` folder using tools like FileZilla, WinSCP, scp or rsync.
 
-### ⚠️ From here on, I will be using the 16.2 driver, but the steps are the same for other driver versions
+### ⚠️ From here on, I will be using the 17.1 driver, but the steps are the same for other driver versions
 
-For example when I run a command like `chmod +x NVIDIA-Linux-x86_64-535.129.03-vgpu-kvm.run`, you should replace `535.129.03` with the driver version you are using (if you are using a different one). You can get the list of version numbers [here](#nvidia-driver).
+For example when I run a command like `chmod +x NVIDIA-Linux-x86_64-550.54.16-vgpu-kvm.run`, you should replace `550.54.16` with the driver version you are using (if you are using a different one). You can get the list of version numbers [here](#nvidia-driver).
 
 Every step where you potentially have to replace the version name will have this warning emoji next to it: ⚠️
 
 > ### Have a vgpu supported card? Read here!
 >
-> If you don't have a card like the Tesla P4, or any other gpu from [this list](https://docs.nvidia.com/grid/gpus-supported-by-vgpu.html), please continue reading at [Patching the driver](#patching-the-driver)
+>> **PLEASE READ THIS**
+>>
+>> Starting from 17.0, all Pascal (and older) GPUs are **not officially supported** anymore. If you still want to use them, either stay on the LTS 16.x branch, or patch the driver with the relevant patch. 
 >
-> With a supported gpu, patching the driver is not needed, so you should skip the next section. You can simply install the driver package like this:
+> If you have a vgpu supported gpu from [this list](https://docs.nvidia.com/grid/gpus-supported-by-vgpu.html), patching is not necessary, and you can skip this step.
+> You can simply install the driver package like this:
 >
 > ⚠️
 > ```bash
-> chmod +x NVIDIA-Linux-x86_64-535.129.03-vgpu-kvm.run
-> ./NVIDIA-Linux-x86_64-535.129.03-vgpu-kvm.run --dkms
+> chmod +x NVIDIA-Linux-x86_64-550.54.16-vgpu-kvm.run
+> ./NVIDIA-Linux-x86_64-550.54.16-vgpu-kvm.run --dkms -m=kernel
 > ```
 >
 > To finish the installation, reboot the system
@@ -312,21 +337,21 @@ Now, on the proxmox host, make the driver executable
 
 ⚠️
 ```bash
-chmod +x NVIDIA-Linux-x86_64-535.129.03-vgpu-kvm.run
+chmod +x NVIDIA-Linux-x86_64-550.54.16-vgpu-kvm.run
 ```
 
 And then patch it
 
 ⚠️
 ```bash
-./NVIDIA-Linux-x86_64-535.129.03-vgpu-kvm.run --apply-patch ~/vgpu-proxmox/535.129.03.patch
+./NVIDIA-Linux-x86_64-550.54.16-vgpu-kvm.run --apply-patch ~/vgpu-proxmox/550.54.16.patch
 ```
 That should output a lot of lines ending with
 ```
-Self-extractible archive "NVIDIA-Linux-x86_64-535.129.03-vgpu-kvm-custom.run" successfully created.
+Self-extractible archive "NVIDIA-Linux-x86_64-550.54.16-vgpu-kvm-custom.run" successfully created.
 ```
 
-You should now have a file called `NVIDIA-Linux-x86_64-535.129.03-vgpu-kvm-custom.run`, that is your patched driver.
+You should now have a file called `NVIDIA-Linux-x86_64-550.54.16-vgpu-kvm-custom.run`, that is your patched driver.
 
 ### Installing the driver
 
@@ -334,7 +359,7 @@ Now that the required patch is applied, you can install the driver
 
 ⚠️
 ```bash
-./NVIDIA-Linux-x86_64-535.129.03-vgpu-kvm-custom.run --dkms
+./NVIDIA-Linux-x86_64-550.54.16-vgpu-kvm-custom.run --dkms -m=kernel
 ```
 
 The installer will ask you `Would you like to register the kernel module sources with DKMS? This will allow DKMS to automatically build a new module, if you install a different kernel later.`, answer with `Yes`.
@@ -343,7 +368,7 @@ Depending on your hardware, the installation could take a minute or two.
 
 If everything went right, you will be presented with this message.
 ```
-Installation of the NVIDIA Accelerated Graphics Driver for Linux-x86_64 (version: 535.129.03) is now complete.
+Installation of the NVIDIA Accelerated Graphics Driver for Linux-x86_64 (version: 550.54.16) is now complete.
 ```
 
 Click `Ok` to exit the installer.
@@ -445,9 +470,9 @@ If we take a look at the output of `mdevctl types` we see lots of different type
 
 > ### Important notes
 >
-> Q profiles *can* give you horrible performance in OpenGL applications/games. To fix that, switch to an equivalent A or B profile (for example `GRID RTX6000-4B`)
+> Q profiles *can* give you horrible performance in OpenGL applications/games (if you have a consumer GPU). To fix that, either add `vgpu_type = "NVS"` to your profile overrides (see below), or switch to an equivalent A or B profile (for example `GRID RTX6000-4B`)
 >
-> C profiles (for example `GRID RTX6000-4C`) only work on Linux, don't try using those on Windows, it will not work - at all.
+> C profiles dont exist anymore, just use Q profiles. ~~C profiles (for example `GRID RTX6000-4C`) only work on Linux, don't try using those on Windows, it will not work - at all.~~
 >
 > A profiles (for example `GRID RTX6000-4A`) will NOT work on Linux, they only work on Windows.
 
@@ -588,6 +613,12 @@ Usually a license is required to use vGPU, but luckily the community found sever
 
 The recommended way to get around the license is to set up your own license server. Follow the instructions [here](https://git.collinwebdesigns.de/oscar.krause/fastapi-dls) (or [here](https://gitea.publichub.eu/oscar.krause/fastapi-dls) if the other link is down).
 
+## PSA for Pascal (and older) GPUs like the P4, GTX 1080...
+
+Starting from driver version 17.0, nvidia in their infinite wisdom dropped support for older cards, so now no matter if the card used to be supported (Tesla P4 etc) or not, you have to patch the driver.
+
+**In addition to that** you have to copy the vgpuConfig.xml from 16.4 and replace the new 17.0 xml. To do that, you install and patch the 17.0 driver as described above, and then extract the 16.4 driver with `./driver.run -x`, and copy the `vgpuConfig.xml` from inside the extracted archive to `/usr/share/nvidia/vgpu/vgpuConfig.xml` (replace the existing file). Then reboot and you should see vgpu profiles in mdevctl again.
+
 ## Common problems
 
 Most problems can be solved by reading the instructions very carefully. For some very common problems, read here:
@@ -601,6 +632,7 @@ Most problems can be solved by reading the instructions very carefully. For some
   - Make sure that you don't have unlock disabled if you have a consumer gpu ([more information](#have-a-vgpu-supported-card-read-here))
 - vGPU doesn't work on my RTX 3080! What to do?
   - [Learn to read](#your-rtx-30xx-or-40xx-will-not-work-at-this-point-in-time)
+- Make sure that you don't have any dummy plugs connected to the GPU ports, they may cause problems as [reported by a user from the vgpu discord](https://discord.com/channels/829786927829745685/1182258311014400040/1187339682082721822)
 
 ## Support
 
@@ -615,6 +647,13 @@ Please also provide the output of `uname -a` and `cat /proc/cmdline`
 
 If you found this guide helpful and want to support me, please feel free to [buy me a coffee](https://www.buymeacoffee.com/polloloco). Thank you very much!
 
+Alternatively, you can donate anonymously via Monero XMR to my wallet:
+
+![qr](qr.svg "Wallet address for donations")
+```
+87GCYs8gAPUCt5PQYjk7FjGiLB44KYvM2aaFHB9U7syBPjnhRq4WVnF8F5xtvKzSp6Fp1HFrH94cC4FXP59G44pv6NueKwL
+```
+
 ## Further reading
 
 Thanks to all these people (in no particular order) for making this project possible
@@ -626,8 +665,13 @@ Thanks to all these people (in no particular order) for making this project poss
 - mbuchel#1878 on the [GPU Unlocking discord](https://discord.gg/5rQsSV3Byq) for [fourteen.patch](https://gist.github.com/erin-allison/5f8acc33fa1ac2e4c0f77fdc5d0a3ed1) to patch the driver on kernels >= 5.14
 - [erin-allison](https://github.com/erin-allison) for the [nvidia-smi wrapper script](https://github.com/erin-allison/nvidia-merged-arch/blob/d2ce752cd38461b53b7e017612410a3348aa86e5/nvidia-smi)
 - LIL'pingu#9069 on the [GPU Unlocking discord](https://discord.gg/5rQsSV3Byq) for his patch to nop out code that NVIDIA added to prevent usage of drivers with a version 460 - 470 with consumer cards
+- [GreenDam](https://gitlab.com/GreenDamTan) for the Linux Kernel 6.8 support for 16.5 and 17.1 drivers (see [merge request](https://gitlab.com/polloloco/vgpu-proxmox/-/merge_requests/9))
 
 If I forgot to mention someone, please create an issue or let me know otherwise.
 
 ## Contributing
 Pull requests are welcome (factual errors, amendments, grammar/spelling mistakes etc).
+
+## License
+
+This project is licensed under [AGPL-3.0-or-later](LICENSE.md)
